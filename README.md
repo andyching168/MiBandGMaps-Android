@@ -1,6 +1,6 @@
 # MiBandGMaps-Android
 
-![image](https://github.com/andyching168/GmapNavNotiCatcher/blob/main/Screenshot_20250430_191045.png)
+![image](https://github.com/andyching168/MiBandGMaps-Android/blob/main/Screenshot_2025-05-02-10-02-07-557_com.andyching168.gmaps.jpg)
 
 這個應用程式可以捕獲 Google Maps 的導航通知，並將導航資訊同步到小米手環的快應用上顯示。
 
