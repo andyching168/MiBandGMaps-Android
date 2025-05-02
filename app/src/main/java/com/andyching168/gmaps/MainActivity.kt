@@ -21,13 +21,77 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.andyching168.gmaps.ui.theme.GoogleMapsTheme
+import android.content.Context
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.util.Log
+import android.Manifest
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
+    // 需要的權限列表
+    private val requiredPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        arrayOf(
+            Manifest.permission.POST_NOTIFICATIONS,
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+    } else {
+        arrayOf(
+            Manifest.permission.POST_NOTIFICATIONS,
+            Manifest.permission.BLUETOOTH,
+            Manifest.permission.BLUETOOTH_ADMIN,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+    }
+    
+    // 錯誤訊息狀態
+    private var errorMessage by mutableStateOf<String?>(null)
+    
+    // 註冊權限請求
+    private val requestPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        var allGranted = true
+        permissions.entries.forEach { entry ->
+            if (!entry.value) {
+                allGranted = false
+                Log.d("MainActivity", "權限被拒絕: ${entry.key}")
+            }
+        }
+        
+        if (allGranted) {
+            Log.d("MainActivity", "所有權限已授予")
+            startNotificationService()
+        } else {
+            Log.d("MainActivity", "有權限被拒絕，可能影響應用功能")
+            // 即使有權限被拒絕，也嘗試啟動服務
+            startNotificationService()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // 檢查是否是結束應用的意圖
+        if (intent?.action == NotificationCatcherService.EXIT_APP_ACTION) {
+            Log.d("MainActivity", "收到結束應用指令")
+            finishAndRemoveTask()
+            System.exit(0)
+            return
+        }
+        
         enableEdgeToEdge()
         setContent {
             GoogleMapsTheme {
@@ -36,8 +100,122 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     NavigationScreen()
+                    
+                    // 顯示錯誤對話框（如果有）
+                    ErrorDialog()
                 }
             }
+        }
+        
+        // 檢查是否需要請求電池優化白名單
+        checkBatteryOptimization()
+        
+        // 檢查並請求所有必需的權限
+        checkAndRequestPermissions()
+    }
+    
+    @Composable
+    private fun ErrorDialog() {
+        // 顯示錯誤對話框
+        errorMessage?.let { message ->
+            AlertDialog(
+                onDismissRequest = { errorMessage = null },
+                title = { Text("錯誤") },
+                text = { Text(message) },
+                confirmButton = {
+                    Button(onClick = { errorMessage = null }) {
+                        Text("確定")
+                    }
+                }
+            )
+        }
+    }
+    
+    private fun checkAndRequestPermissions() {
+        // 檢查是否已獲取所有權限
+        val permissionsToRequest = mutableListOf<String>()
+        
+        for (permission in requiredPermissions) {
+            if (ContextCompat.checkSelfPermission(this, permission) != 
+                PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(permission)
+            }
+        }
+        
+        if (permissionsToRequest.isEmpty()) {
+            // 已有所有權限，可以啟動服務
+            Log.d("MainActivity", "已有所有必需權限")
+            startNotificationService()
+        } else {
+            // 請求缺少的權限
+            Log.d("MainActivity", "請求權限: ${permissionsToRequest.joinToString()}")
+            requestPermissionsLauncher.launch(permissionsToRequest.toTypedArray())
+        }
+        
+        // 確保通知監聽權限也已開啟
+        ensureNotificationListenerPermission()
+    }
+    
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        
+        // 處理新的意圖，檢查是否是結束應用的指令
+        if (intent.action == NotificationCatcherService.EXIT_APP_ACTION) {
+            Log.d("MainActivity", "收到結束應用指令(onNewIntent)")
+            finishAndRemoveTask()
+            System.exit(0)
+        }
+    }
+    
+    private fun startNotificationService() {
+        try {
+            // 啟動前台服務
+            val serviceIntent = Intent(this, NotificationCatcherService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            Log.d("MainActivity", "已啟動通知監聽服務")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "啟動通知監聽服務失敗", e)
+            // 顯示錯誤訊息
+            val errorMsg = "啟動服務失敗: ${e.message}"
+            Log.e("MainActivity", errorMsg)
+            
+            // 使用Toast顯示錯誤訊息
+            Toast.makeText(this, errorMsg, Toast.LENGTH_LONG).show()
+            
+            // 同時更新Compose狀態以顯示錯誤
+            errorMessage = errorMsg
+        }
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        // 確保通知監聽權限已開啟
+        ensureNotificationListenerPermission()
+    }
+    
+    private fun checkBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            }
+        }
+    }
+    
+    private fun ensureNotificationListenerPermission() {
+        // 檢查通知監聽權限
+        val enabledListeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+        if (enabledListeners == null || !enabledListeners.contains(packageName)) {
+            // 提示用戶開啟通知監聽權限
+            val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            startActivity(intent)
         }
     }
 }
@@ -67,40 +245,68 @@ fun NavigationScreen() {
     ) {
         // 權限設定按鈕
         Button(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp, vertical = 4.dp),
             onClick = {
                 val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
                 context.startActivity(intent)
             }
         ) {
-            Text("開啟通知存取權限")
+            Text(
+                text = "開啟通知存取權限",
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
 
         // 功能按鈕行
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // 第一行按鈕
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                // 開啟 Google Maps 按鈕
+                Button(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp),
+                    onClick = {
+                        viewModel.openGoogleMaps(context)
+                    }
+                ) {
+                    Text(
+                        text = "開啟 Google Maps",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1
+                    )
+                }
+
+                // 顯示 JSON 按鈕
+                Button(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp),
+                    onClick = {
+                        showJsonDialog = true
+                    }
+                ) {
+                    Text(
+                        text = "顯示 JSON",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1
+                    )
+                }
+            }
             
-            // 開啟 Google Maps 按鈕
+            // 第二行按鈕 - 結束應用程式
             Button(
-                onClick = {
-                    viewModel.openGoogleMaps(context)
-                }
-            ) {
-                Text("開啟 Google Maps")
-            }
-
-            // 顯示 JSON 按鈕
-            Button(
-                onClick = {
-                    showJsonDialog = true
-                }
-            ) {
-                Text("顯示 JSON")
-            }
-
-            // 結束應用程式按鈕
-            Button(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, bottom = 4.dp, start = 32.dp, end = 32.dp),
                 onClick = {
                     // 發送空 JSON 到小米手環
                     viewModel.sendEmptyJsonToWearable(context)
@@ -114,7 +320,10 @@ fun NavigationScreen() {
                     System.exit(0)
                 }
             ) {
-                Text("結束應用程式")
+                Text(
+                    text = "結束應用程式",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
         }
 
@@ -147,32 +356,59 @@ fun NavigationScreen() {
                 )
                 
                 // 手環操作按鈕
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Button(
-                        onClick = {
-                            viewModel.queryConnectedDevices(context)
-                        }
+                    // 第一行按鈕 - 重新連接和開啟手環應用
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        Text("重新連接")
+                        Button(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 4.dp),
+                            onClick = {
+                                viewModel.queryConnectedDevices(context)
+                            }
+                        ) {
+                            Text(
+                                text = "重新連接",
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1
+                            )
+                        }
+                        
+                        Button(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 4.dp),
+                            onClick = {
+                                viewModel.openWearableApp(context)
+                            }
+                        ) {
+                            Text(
+                                text = "開啟手環應用",
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1
+                            )
+                        }
                     }
                     
+                    // 第二行按鈕 - 發送資料
                     Button(
-                        onClick = {
-                            viewModel.openWearableApp(context)
-                        }
-                    ) {
-                        Text("開啟手環應用")
-                    }
-                    
-                    Button(
+                        modifier = Modifier
+                            .fillMaxWidth(0.75f)
+                            .padding(top = 8.dp),
                         onClick = {
                             viewModel.sendNavigationDataToWearable(context)
                         }
                     ) {
-                        Text("發送資料")
+                        Text(
+                            text = "發送資料",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
                     }
                 }
             }

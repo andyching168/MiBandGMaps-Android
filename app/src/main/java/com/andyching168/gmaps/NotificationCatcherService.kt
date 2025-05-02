@@ -7,17 +7,194 @@ import android.graphics.drawable.Icon
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import java.security.MessageDigest
 import java.math.BigInteger
 
 class NotificationCatcherService : NotificationListenerService() {
     private lateinit var viewModel: NavigationViewModel
+    private val CHANNEL_ID = "gmaps_navigation_channel"
+    private val NOTIFICATION_ID = 1001
+    private val EXIT_ACTION = "com.andyching168.gmaps.EXIT_APP"
+
+    companion object {
+        const val EXIT_APP_ACTION = "com.andyching168.gmaps.EXIT_APP"
+    }
 
     override fun onCreate() {
         super.onCreate()
-        viewModel = NotificationCatcherApp.getInstance().getNavigationViewModel()
-        // 初始化時設置為沒有通知
-        viewModel.updateNavigationInfo(NavigationInfo(hasNotification = false))
+        try {
+            viewModel = NotificationCatcherApp.getInstance().getNavigationViewModel()
+            // 初始化時設置為沒有通知
+            viewModel.updateNavigationInfo(NavigationInfo(hasNotification = false))
+            
+            // 創建通知渠道
+            createNotificationChannel()
+            
+            // 檢查是否有必要的藍牙權限
+            val hasBluetoothPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                checkPermission(android.Manifest.permission.BLUETOOTH_CONNECT) && 
+                checkPermission(android.Manifest.permission.BLUETOOTH_SCAN)
+            } else {
+                checkPermission(android.Manifest.permission.BLUETOOTH) && 
+                checkPermission(android.Manifest.permission.BLUETOOTH_ADMIN)
+            }
+            
+            // 根據權限情況處理
+            if (hasBluetoothPermission) {
+                // 啟動前台服務
+                startForeground()
+                
+                // 初始化小米手環連接
+                viewModel.initializeWearable(applicationContext)
+            } else {
+                Log.e("NotificationCatcherService", "缺少必要的藍牙權限，無法啟動前台服務")
+                // 仍然創建通知但不使用FOREGROUND_SERVICE_CONNECTED_DEVICE類型
+                startSimpleForeground()
+            }
+            
+            // 請求忽略電池優化
+            requestIgnoreBatteryOptimization()
+            
+        } catch (e: SecurityException) {
+            Log.e("NotificationCatcherService", "啟動前台服務失敗，權限不足: ${e.message}")
+            // 嘗試啟動一個基本的前台服務，不需要特殊權限
+            startSimpleForeground()
+        } catch (e: Exception) {
+            Log.e("NotificationCatcherService", "服務啟動失敗: ${e.message}")
+        }
+    }
+    
+    private fun checkPermission(permission: String): Boolean {
+        return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == EXIT_ACTION) {
+            // 處理結束APP操作
+            exitApp()
+            return START_NOT_STICKY
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
+    private fun exitApp() {
+        try {
+            // 發送空 JSON 到小米手環
+            viewModel.sendEmptyJsonToWearable(applicationContext)
+            Log.d("NotificationCatcherService", "已發送空 JSON 到手環")
+            
+            // 停止前台服務
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            
+            // 啟動MainActivity並帶上結束應用的動作
+            val exitIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                action = EXIT_APP_ACTION
+            }
+            startActivity(exitIntent)
+            
+            Log.d("NotificationCatcherService", "已發送結束應用指令")
+        } catch (e: Exception) {
+            Log.e("NotificationCatcherService", "結束應用時出錯", e)
+        }
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val serviceChannel = NotificationChannel(
+                CHANNEL_ID,
+                "導航監聽服務",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "用於保持導航監聽服務在背景運行"
+                setShowBadge(false)
+            }
+            
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(serviceChannel)
+        }
+    }
+    
+    private fun startSimpleForeground() {
+        // 創建一個基本的前台服務通知，不需要特殊權限
+        val contentIntent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, contentIntent, 
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        
+        val exitIntent = Intent(this, NotificationCatcherService::class.java).apply {
+            action = EXIT_ACTION
+        }
+        val exitPendingIntent = PendingIntent.getService(
+            this, 1, exitIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Google 地圖導航同步")
+            .setContentText("正在監聽導航通知 (基本模式)")
+            .setSmallIcon(android.R.drawable.ic_dialog_map)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "結束APP", exitPendingIntent)
+            .build()
+            
+        startForeground(NOTIFICATION_ID, notification)
+        Log.d("NotificationCatcherService", "已啟動基本前台服務")
+    }
+    
+    private fun startForeground() {
+        // 創建返回到應用程式的 PendingIntent
+        val contentIntent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, contentIntent, 
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        
+        // 創建結束應用的 PendingIntent
+        val exitIntent = Intent(this, NotificationCatcherService::class.java).apply {
+            action = EXIT_ACTION
+        }
+        val exitPendingIntent = PendingIntent.getService(
+            this, 1, exitIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Google 地圖導航同步")
+            .setContentText("正在監聽導航通知")
+            .setSmallIcon(android.R.drawable.ic_dialog_map)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "結束APP", exitPendingIntent)
+            .build()
+            
+        startForeground(NOTIFICATION_ID, notification)
+        Log.d("NotificationCatcherService", "前台服務已啟動")
+    }
+    
+    private fun requestIgnoreBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                Log.d("NotificationCatcher", "應用未被列入白名單，建議手動設置")
+            }
+        }
     }
 
     private fun simpleIconHash(bitmap: Bitmap): String {
@@ -117,6 +294,17 @@ class NotificationCatcherService : NotificationListenerService() {
                 Log.e("NotificationCatcher", "發送空 JSON 到手環失敗", e)
             }
         }
+    }
+    
+    override fun onBind(intent: Intent?): IBinder? {
+        val binder = super.onBind(intent)
+        Log.d("NotificationCatcherService", "服務已綁定")
+        return binder
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.d("NotificationCatcherService", "服務已銷毀")
     }
 
     private fun parseNavigationInfo(title: String, direction: String, subText: String): NavigationInfo {

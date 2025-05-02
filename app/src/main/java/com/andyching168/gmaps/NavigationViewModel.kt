@@ -302,18 +302,48 @@ class NavigationViewModel : ViewModel() {
 
     fun openGoogleMaps(context: Context) {
         try {
-            val launchIntent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
-            if (launchIntent != null) {
-                context.startActivity(launchIntent)
-            } else {
-                Toast.makeText(context, "找不到 Google Maps 應用程式", Toast.LENGTH_SHORT).show()
+            // Google Maps的包名
+            val googleMapsPackageName = "com.google.android.apps.maps"
+            
+            // 使用顯式Intent直接啟動Google Maps的主Activity
+            val explicitIntent = Intent().apply {
+                setClassName(googleMapsPackageName, "com.google.android.maps.MapsActivity")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            context.startActivity(explicitIntent)
+            log("成功啟動 Google Maps")
+            
         } catch (e: Exception) {
-            Toast.makeText(context, "無法開啟 Google Maps", Toast.LENGTH_SHORT).show()
-            Log.e("NotificationCatcher", "開啟 Google Maps 失敗", e)
+            log("啟動 Google Maps 失敗: ${e.message}")
+            Log.e("NotificationCatcher", "啟動 Google Maps 失敗", e)
+            
+            // 備選方案：使用隱式Intent嘗試開啟地圖
+            try {
+                val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=台北101"))
+                mapIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(mapIntent)
+                log("成功啟動地圖應用")
+            } catch (e2: Exception) {
+                // 如果所有方法都失敗，引導用戶開啟Google Play下載
+                Toast.makeText(context, "無法開啟 Google Maps: ${e.message}", Toast.LENGTH_LONG).show()
+                val googleMapsPackageName = "com.google.android.apps.maps"
+                try {
+                    val playStoreIntent = Intent(Intent.ACTION_VIEW).apply {
+
+                        data = Uri.parse("market://details?id=$googleMapsPackageName")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(playStoreIntent)
+                } catch (e3: Exception) {
+                    val webIntent = Intent(Intent.ACTION_VIEW).apply {
+                        data = Uri.parse("https://play.google.com/store/apps/details?id=$googleMapsPackageName")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(webIntent)
+                }
+            }
         }
     }
-
 
     fun generateNavigationJson(): String {
         val json = JSONObject().apply {
