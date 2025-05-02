@@ -80,15 +80,7 @@ fun NavigationScreen() {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            // 顯示原始通知按鈕
-            Button(
-                onClick = {
-                    viewModel.showRawNotification(context)
-                }
-            ) {
-                Text("顯示原始通知")
-            }
-
+            
             // 開啟 Google Maps 按鈕
             Button(
                 onClick = {
@@ -105,6 +97,24 @@ fun NavigationScreen() {
                 }
             ) {
                 Text("顯示 JSON")
+            }
+
+            // 結束應用程式按鈕
+            Button(
+                onClick = {
+                    // 發送空 JSON 到小米手環
+                    viewModel.sendEmptyJsonToWearable(context)
+                    
+                    // 停止通知監聽服務
+                    val serviceIntent = Intent(context, NotificationCatcherService::class.java)
+                    context.stopService(serviceIntent)
+                    
+                    // 完全關閉應用程式
+                    (context as? ComponentActivity)?.finishAffinity()
+                    System.exit(0)
+                }
+            ) {
+                Text("結束應用程式")
             }
         }
 

@@ -224,7 +224,7 @@ class NavigationViewModel : ViewModel() {
             messageApi.sendMessage(nid, message.toByteArray())
                 .addOnSuccessListener {
                     log("成功發送訊息: $message")
-                    Toast.makeText(context, "已發送到手環", Toast.LENGTH_SHORT).show()
+                    //Toast.makeText(context, "已發送到手環", Toast.LENGTH_SHORT).show()
                 }
                 .addOnFailureListener { e ->
                     log("發送訊息失敗: ${e.message}")
@@ -302,14 +302,18 @@ class NavigationViewModel : ViewModel() {
 
     fun openGoogleMaps(context: Context) {
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=destination"))
-            intent.setPackage("com.google.android.apps.maps")
-            context.startActivity(intent)
+            val launchIntent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
+            if (launchIntent != null) {
+                context.startActivity(launchIntent)
+            } else {
+                Toast.makeText(context, "找不到 Google Maps 應用程式", Toast.LENGTH_SHORT).show()
+            }
         } catch (e: Exception) {
             Toast.makeText(context, "無法開啟 Google Maps", Toast.LENGTH_SHORT).show()
             Log.e("NotificationCatcher", "開啟 Google Maps 失敗", e)
         }
     }
+
 
     fun generateNavigationJson(): String {
         val json = JSONObject().apply {
@@ -318,6 +322,22 @@ class NavigationViewModel : ViewModel() {
             put("direction", _navigationInfo.value.direction)
         }
         return json.toString(4) // 使用 4 個空格進行格式化
+    }
+
+    // 生成空 JSON
+    private fun generateEmptyJson(): String {
+        val json = JSONObject().apply {
+            put("turnDirection", "")
+            put("turnDistance", "")
+            put("direction", "")
+        }
+        return json.toString(4)
+    }
+
+    // 發送空 JSON 到手環
+    fun sendEmptyJsonToWearable(context: Context) {
+        val emptyJson = generateEmptyJson()
+        sendMessageToWearable(context, emptyJson)
     }
 
     fun copyJsonToClipboard(context: Context) {

@@ -108,8 +108,14 @@ class NotificationCatcherService : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         super.onNotificationRemoved(sbn)
         if (sbn.packageName == "com.google.android.apps.maps") {
-            // 當 Google Maps 通知被移除時，設置為沒有通知
+            // 當 Google Maps 通知被移除時，設置為沒有通知並發送空 JSON
             viewModel.updateNavigationInfo(NavigationInfo(hasNotification = false))
+            try {
+                viewModel.sendEmptyJsonToWearable(applicationContext)
+                Log.d("NotificationCatcher", "已發送空 JSON 到手環")
+            } catch (e: Exception) {
+                Log.e("NotificationCatcher", "發送空 JSON 到手環失敗", e)
+            }
         }
     }
 
