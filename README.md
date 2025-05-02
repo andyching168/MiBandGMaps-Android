@@ -1,8 +1,8 @@
-# GmapNavNotiCatcher
+# MiBandGMaps-Android
 
 ![image](https://github.com/andyching168/GmapNavNotiCatcher/blob/main/Screenshot_20250430_191045.png)
 
-一個用於捕獲和分析 Google Maps 導航通知的 Android 應用程式。這個專案展示了如何通過 Android 的通知監聽服務來獲取 Google Maps 的導航信息，並通過圖標哈希值識別導航方向。
+這個應用程式可以捕獲 Google Maps 的導航通知，並將導航資訊同步到小米手環的快應用上顯示。
 
 ## 功能特點
 
@@ -148,9 +148,7 @@ private val iconHashMap: Map<String, String> = mapOf(
 
 MIT License 
 
-# 小米手環導航訊息同步應用程式
 
-這個應用程式可以捕獲 Google Maps 的導航通知，並將導航資訊同步到小米手環的快應用上顯示。
 
 ## 配置說明
 
