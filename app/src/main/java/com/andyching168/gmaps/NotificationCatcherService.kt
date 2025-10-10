@@ -348,7 +348,10 @@ class NotificationCatcherService : NotificationListenerService() {
                 }
                 part.contains("公里") -> totalDistance = part.trim()
                 part.contains("分鐘") -> duration = part.trim()
-                part.contains("預計到達時間") -> eta = part.trim()
+                part.contains("預計到達時間") -> {
+                    // 移除「預計到達時間：」前綴，只保留時間
+                    eta = part.trim().replace("預計到達時間：", "").replace("預計到達時間", "").trim()
+                }
             }
         }
 
