@@ -32,6 +32,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import android.Manifest
+import android.content.ComponentName
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -193,8 +194,38 @@ class MainActivity : ComponentActivity() {
     
     override fun onResume() {
         super.onResume()
-        // 確保通知監聽權限已開啟
+        // 檢查通知監聽權限是否已開啟
+        if (isNotificationServiceEnabled()) {
+            // 如果權限已開啟，重新綁定服務以確保其處於活動狀態
+            rebindNotificationService()
+        }
+        // 確保通知監聽權限已開啟（如果尚未開啟，會引導使用者去設定）
         ensureNotificationListenerPermission()
+    }
+
+    private fun isNotificationServiceEnabled(): Boolean {
+        val enabledListeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+        return enabledListeners?.contains(packageName) == true
+    }
+
+    private fun rebindNotificationService() {
+        Log.d("MainActivity", "正在重新綁定通知服務...")
+        val componentName = ComponentName(this, NotificationCatcherService::class.java)
+        try {
+            packageManager.setComponentEnabledSetting(
+                componentName,
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP
+            )
+            packageManager.setComponentEnabledSetting(
+                componentName,
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP
+            )
+            Log.d("MainActivity", "通知服務已重新綁定。")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "重新綁定服務失敗", e)
+        }
     }
     
     private fun checkBatteryOptimization() {

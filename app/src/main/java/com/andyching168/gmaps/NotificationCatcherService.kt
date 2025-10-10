@@ -301,6 +301,27 @@ class NotificationCatcherService : NotificationListenerService() {
         Log.d("NotificationCatcherService", "服務已綁定")
         return binder
     }
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        Log.d("NotificationCatcherService", "通知監聽器已連接，正在檢查現有通知...")
+        // 獲取所有當前活動的通知
+        val activeNotifications = activeNotifications
+        if (activeNotifications.isNullOrEmpty()) {
+            Log.d("NotificationCatcherService", "沒有發現活動中的通知。")
+            return
+        }
+
+        // 尋找 Google Maps 的導航通知
+        for (sbn in activeNotifications) {
+            if (sbn.packageName == "com.google.android.apps.maps") {
+                Log.d("NotificationCatcherService", "發現現有的 Google Maps 通知，正在處理...")
+                // 處理這個已存在的通知
+                onNotificationPosted(sbn)
+                break // 假設只有一個導航通知
+            }
+        }
+    }
     
     override fun onDestroy() {
         super.onDestroy()
