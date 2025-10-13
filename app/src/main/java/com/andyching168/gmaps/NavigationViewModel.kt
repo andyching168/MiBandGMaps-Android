@@ -52,7 +52,9 @@ class NavigationViewModel : ViewModel() {
     private val iconHashMap: Map<String, String> = mapOf(
         // 基本方向
         "3-59-0-0-123-151-99-71-11-71-0-95-0-0-0-47" to "left",   // 左轉
+        "0-63-0-0-127-175-127-71-11-79-0-127-0-0-0-63" to "left",
         "0-0-59-3-71-99-151-123-95-0-71-11-47-0-0-0" to "right",  // 右轉
+        "0-0-63-3-71-127-175-127-127-0-79-11-63-0-0-0" to "right",
         "0-39-39-0-0-175-175-0-0-55-55-0-0-23-23-0" to "straight", // 直行
         "0-39-39-0-0-175-175-0-0-63-63-0-0-31-31-0" to "straight", // 直行
         "0-39-39-0-0-175-175-0-0-139-135-0-7-55-55-3" to "GoStraight", // 直行(接到下一個路）
@@ -104,7 +106,7 @@ class NavigationViewModel : ViewModel() {
         
         // 記錄最大差異，方便調試
         if (maxDiff > 20) {
-            Log.d("NotificationCatcher", """
+            Log.d("GmapMQTT", """
                 哈希值比較:
                 原始: $hash1
                 當前: $hash2
@@ -261,6 +263,21 @@ class NavigationViewModel : ViewModel() {
         lastRawNotification = raw
     }
 
+    fun getLastRawNotification(): String {
+        return lastRawNotification.ifEmpty { "目前沒有原始通知內容" }
+    }
+
+    fun copyRawNotificationToClipboard(context: Context) {
+        if (lastRawNotification.isNotEmpty()) {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("Raw Notification", lastRawNotification)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(context, "已複製到剪貼簿", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "沒有可複製的內容", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun setLastIconHash(hash: String, bitmap: Bitmap? = null) {
         lastIconHash = hash
         val direction = getDirectionWithTolerance(hash)
@@ -348,8 +365,8 @@ class NavigationViewModel : ViewModel() {
     fun generateNavigationJson(): String {
         val json = JSONObject().apply {
             put("turnDirection", _navigationInfo.value.turnDirection)
-            put("turnDistance", _navigationInfo.value.turnDistance)
             put("direction", _navigationInfo.value.direction)
+            put("turnDistance", _navigationInfo.value.turnDistance)
         }
         return json.toString(4) // 使用 4 個空格進行格式化
     }

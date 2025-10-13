@@ -16,3 +16,4 @@ local.properties
 /.idea/AndroidProjectSystem.xml
 /.idea/codeStyles/codeStyleConfig.xml
 /.idea/codeStyles/Project.xml
+/.idea/copilot.data.migration.agent.xml
